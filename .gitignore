@@ -1,0 +1,17 @@
+.idea/
+vscode/
+.DS_Store
+
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+
+*.so
+
+output/
+**/__pycache__/
+
+data/demosVR
+data/

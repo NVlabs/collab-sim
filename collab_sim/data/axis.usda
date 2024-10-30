@@ -1,0 +1,96 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (50001.500000000015, -1.1102563313158953e-11, 0)
+                double radius = 500
+            }
+            dictionary Perspective = {
+                double3 position = (0.6518781339893183, 0.6518781339893152, 0.6518781339893012)
+                double3 target = (0.25, 0.25, 0.25)
+            }
+            dictionary Right = {
+                double3 position = (0, -50001, -1.110245229085649e-11)
+                double radius = 500
+            }
+            dictionary Top = {
+                double3 position = (0, 0, 50001.5)
+                double radius = 500
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary renderSettings = {
+        }
+    }
+    defaultPrim = "axis"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "axis"
+{
+    quatd xformOp:orient = (1, 0, 0, 0)
+    double3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+    def Cylinder "z"
+    {
+        uniform token axis = "Z"
+        float3[] extent = [(-0.0075, -0.0075, -0.05), (0.0075, 0.0075, 0.05)]
+        double height = 0.1
+        color3f[] primvars:displayColor = [(0, 0, 1)]
+        float[] primvars:displayOpacity = [0.5]
+        double radius = 0.0075
+        custom bool refinementEnableOverride = 1
+        custom int refinementLevel = 2
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0.05)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Cylinder "x"
+    {
+        uniform token axis = "X"
+        float3[] extent = [(-0.05, -0.0075, -0.0075), (0.05, 0.0075, 0.0075)]
+        double height = 0.1
+        color3f[] primvars:displayColor = [(1, 0, 0)]
+        float[] primvars:displayOpacity = [0.5]
+        double radius = 0.0075
+        custom bool refinementEnableOverride = 1
+        custom int refinementLevel = 2
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0.05, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Cylinder "y"
+    {
+        uniform token axis = "Y"
+        float3[] extent = [(-0.0075, -0.05, -0.0075), (0.0075, 0.05, 0.0075)]
+        double height = 0.1
+        color3f[] primvars:displayColor = [(0, 1, 0)]
+        float[] primvars:displayOpacity = [0.5]
+        double radius = 0.0075
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0.05, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Sphere "origin"
+    {
+        float3[] extent = [(-0.012, -0.012, -0.012), (0.012, 0.012, 0.012)]
+        color3f[] primvars:displayColor = [(0.1, 0.1, 0.1)]
+        float[] primvars:displayOpacity = [0.5]
+        double radius = 0.012
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+}
+
