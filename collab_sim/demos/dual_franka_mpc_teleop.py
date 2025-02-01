@@ -28,16 +28,14 @@
 #
 
 
-# isaac sim 2023.1.1
-# cuda 11.8, python 3.10
-
-    # collab-sim must be visible from python: 
+    # pre-req: SteamVR connection to VR headset running
+    # collab-sim must be visible from python
     # export PYTHONPATH=$PYTHONPATH:"<...>/collab-sim"
     # useconda
-    # usecuda118
-    # conda activate vrcurobo_202311
-    # useisaac23_1_1_rc8
+    # conda activate collab-sim
+    # ./setup_conda_env.sh 
     # vr: python franka_mpc_example.py --runvr --log_data --relevant_objects_str Cube P3 P4
+    #               --enable omni.kit.xr.profile.vr --enable isaacsim.xr.openxr
     # non-vr: python franka_mpc_example.py --use_keyboard --log_data --relevant_objects_str P3 P4
 
 import argparse
@@ -45,16 +43,16 @@ import argparse
 # Config:
 # config to be used if ran with no arguments, easy for debugging:
 debug_run_vr = False 
-debug_print_degub = True
+debug_print_debug = True
 debug_use_keyboard = False 
 debug_log_data = False
 debug_relevant_objects_str = ["Cube", "P3", "P4", "table"]
-load_scene_usd = False 
+load_scene_usd = False # only dev 
 # load_tabletop_scene = False
 # or overide args if provided:
 parser = argparse.ArgumentParser()
 parser.add_argument("--run_vr", action='store_true', default=debug_run_vr, help="Enable VR mode (default: debug)")
-parser.add_argument("--print_debug", action='store_true', default=debug_print_degub, help="Enable debug printing (default: debug)")
+parser.add_argument("--print_debug", action='store_true', default=debug_print_debug, help="Enable debug printing (default: debug)")
 parser.add_argument("--use_keyboard", action='store_true', default=debug_use_keyboard, help="Enable keyboard open/close Franka gripper (default: debug)")
 parser.add_argument("--log_data", action='store_true', default=debug_log_data, help="Enable data logging (default: debug)")
 parser.add_argument(
@@ -63,7 +61,7 @@ parser.add_argument(
     default=debug_relevant_objects_str, 
     help="str for prim names to save in addition to scene registry (robot) (default: ['Cube', 'P3', 'P4'])"
 )
-args = parser.parse_args()
+args, unknown_args = parser.parse_known_args()
 ############################################################
 if args.print_debug:
     print (args)
@@ -84,14 +82,12 @@ from curobo.util_file import get_robot_configs_path, get_world_configs_path, joi
 tensor_args = TensorDeviceType()
 ############################################################
 # Isaac Sim:
-from omni.isaac.kit import SimulationApp
-
+from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": False})
 
-from omni.isaac.core import World
-# import carb
-from omni.isaac.core.utils.types import ArticulationAction
-from omni.isaac.core.utils.rotations import euler_angles_to_quat
+from isaacsim.core.api import World
+from isaacsim.core.utils.types import ArticulationAction
+from isaacsim.core.utils.rotations import euler_angles_to_quat
 from typing import Optional
 import omni.appwindow  # Contains handle to keyboard
 import time
@@ -146,7 +142,8 @@ cube_xyz_ranges = [
 ]
 p_worker = np.array(p_table) + np.array([3.64, -6.50, 0.0]) 
 
-# ROBOT ORIGIN
+
+# ROBOT ORIGIN for testing
 ############################################################
 # #robot 1 origin:
 # robot_origin_p_in_world_1 = np.array([0.0, 0.0, 0.0])
@@ -269,45 +266,30 @@ p3x_franka2 = collab_isaacsim.create_visual_frame("P3_franka2", "/World/DebugFra
 
 
 if args.run_vr:
-    from collab_sim import collab_vrteleop #Import VR module, enables VR 
-    from omni.kit.xr.core import XRGestureEventType
+    from collab_sim import collab_vrteleop  
     class Franka2VRController (collab_vrteleop.VRTeleop):
 
-        def init_vr_dual_arm (self):
-            pass
-        def press1(self, ev):
-            # print("press1 action: reset cube and sketch")
-            # action_primary_down called each step that button is pressed
-            if ev.type == XRGestureEventType.begin:
-                # press BEGIN condition
-                print("Down")
-            elif ev.type == XRGestureEventType.end:
-                print("Release")
-            else:
-                # while pressed:
-                print ("pressed")
+        def init_vr_leftcont_buttons_lefthanded_teleop_franka2 (self):
+            """
+            - One Franka is handled through the default teleop in VRTeleop (right controller init)
+            - Here we extend the class the second Franka teleop on the left controller
+            - Creates buttons/action mapping to functions
+            - **Left hand: trigger = teleop, side button = gripper open/close**
+            """
+            # left controller:
+            self.left_trigger_button_manager = collab_vrteleop.VRButtonManager(input_device_path = "/user/hand/left", button_name = "trigger", gesture_name = "click",
+                                                        on_press=self.teleop_action_on_button_press_franka2, 
+                                                        on_while_pressed=self.teleop_action_while_button_pressed_franka2,
+                                                        on_release=None)
+            self.left_squeeze_button_manager = collab_vrteleop.VRButtonManager(input_device_path = "/user/hand/left", button_name = "squeeze", gesture_name = "click",
+                                                                on_press=self.gripper_action_on_button_press,
+                                                                on_while_pressed=None, 
+                                                                on_release=None)
             
-        def press2(self, ev):
-            # print("press2 action")
-            pass
-        
-        def press3x(self, ev):
-            # print("press1 action")
-            pass
+            self.left_trigger_button_manager.print_all_buttons_this_device()
 
-        def action_secondary_select_teleop (self, ev):
-            """
-            Default callback for triger button on primary controller
-            Action called each step that button is pressed
-            Enabled if run init_vr_buttons()
-            This action sets the position of the end-effector goal for teleop
-            (This pose is to be read in the main sim loop to command the teleop)
-            """
 
-            if ev.type == XRGestureEventType.begin:
-                # press BEGIN condition
-                print("Down")
-
+        def teleop_action_on_button_press_franka2 (self):
                 # current pose of VR LEFT controller (at button press):
                 vr_p, vr_quat = self.target_prim_vrleft.get_world_pose()
                 self.world_to_vr_start = ft.transform_from_pq(p=vr_p, quat=vr_quat)
@@ -316,11 +298,8 @@ if args.run_vr:
                 current_p, current_q = self.vr_target_motion_controller.get_world_pose()
                 self.world_to_eegoal_start = ft.transform_from_pq(p=current_p, quat=current_q) #ee_goal pose
 
-            elif ev.type == XRGestureEventType.end:
-                print("Release")
-                # self.CONTROL_RIGHT = 0
 
-            else:
+        def teleop_action_while_button_pressed_franka2 (self):
                 # while pressed:
                 vr_p, vr_quat = self.target_prim_vrleft.get_world_pose()
                 self.world_to_vr_new = ft.transform_from_pq(p=vr_p, quat=vr_quat)
@@ -336,52 +315,38 @@ if args.run_vr:
                 # Set position of VR goal frame - to be read on main sim loop:
                 self.vr_target_motion_controller.set_world_pose(ft.position_from_transform(self.world_to_eegoal_new), ft.quat_from_transform(self.world_to_eegoal_new)) 
 
-        def action_secondary_grab_teleopdefault (self, ev):
-            """
-            Default callback for side buttons on primary controller
-            Action called each step that button is pressed
-            Enabled if run init_vr_buttons()
-            This action opens/closes the gripper
-            """
-            if ev.type == XRGestureEventType.begin:
-                # press BEGIN condition
-                print("press secondary select")
-                if self.gripper_opened:
-                    self.robot.gripper.close() 
-                else:
-                    self.robot.gripper.open() 
-                self.gripper_opened = not self.gripper_opened    
-            elif ev.type == XRGestureEventType.end:
-                print("Release secondary select")     
-    
-
     vr_world_1 = collab_vrteleop.VRTeleop(world=my_world)
-    vr_world_1.set_up_vr_teleop(robot=my_franka_1, eegoalprim=p3x) #Assign prim for vr teleop
     
-    # imports and utils:
+    while not vr_world_1.is_vr_initialized():  
+        print ("waiting for VR to start")
+        my_world.step(render=True)
+
+    vr_world_1.set_up_vr_devices_with_active_vr() #get profile and components that need vr enabled already
+    vr_world_1.set_up_vr_teleop_frames(robot=my_franka_1, eegoalprim=p3x) #Assign prim for vr teleop
+    vr_world_1.init_vr_rightcont_buttons_righthanded_teleop_default() #**Right hand: trigger = teleop, side button = gripper open/close**
+ 
     vr_world_2 = Franka2VRController(world=my_world)
-    vr_world_2.set_up_vr_teleop(robot=my_franka_2, eegoalprim=p3x_franka2) #Assign prim for vr teleop
-    # # vr buttons callbacks:
-    action_callback_pairs = [
-        ("secondary_controller:sel:select", vr_world_2.action_secondary_select_teleop),
-        ("secondary_controller:grab",       vr_world_2.action_secondary_grab_teleopdefault)
-    ]
+    vr_world_2.set_up_vr_teleop_frames(robot=my_franka_2, eegoalprim=p3x_franka2) #Assign prim for vr teleop
+    vr_world_2.init_vr_leftcont_buttons_lefthanded_teleop_franka2() #**Left hand: trigger = teleop, side button = gripper open/close**
 
 
+def reset_two_frankas ():
+    collab_isaacsim.move_robot_to_root_transform(my_franka_1, 
+                                             world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world_1, 
+                                                                                     robot_origin_quat_in_world_1))
+    collab_isaacsim.move_robot_to_root_transform(my_franka_2, 
+                                        world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world_2, 
+                                                                                robot_origin_quat_in_world_2))
     
 ############################################################
 
 collab_isaacsim.reset_world()
-collab_franka1.franka_setup_gains_reset() #needed after reset - my_world.reset() initializes articulation_view, and resets changes to gains
+reset_two_frankas()
 collab_isaacsim.set_solver_TGS()
 
 if args.log_data:
     sim_data_log = collab_teleop_utils.SimDataLog(args.relevant_objects_str, my_world)
     sim_data_log.save_world_usd(my_world)
-
-if args.run_vr:
-    vr_world_1.init_vr_buttons()
-    vr_world_2.init_vr_buttons_general(action_callback_pairs)
 
 def main():
     # send robot to initial joint configuration at sim start:
@@ -391,10 +356,12 @@ def main():
 
     ###########################################
     # #Initialize mpc buffer, which needs an ee_goal_pose and current state
-    eegoal_Pose_in_robotbase_1 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_1), quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_1))
+    eegoal_Pose_in_robotbase_1 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_1), 
+                                        quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_1))
     collab_franka1.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_1)
 
-    eegoal_Pose_in_robotbase_2 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_2), quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_2))
+    eegoal_Pose_in_robotbase_2 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_2), 
+                                        quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_2))
     collab_franka2.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_2)
 
     run_sim_to_first_ee_goal = True
@@ -410,30 +377,36 @@ def main():
 
         if my_world.is_stopped(): #reset after stopping sim on the gui
             print ("my_world.reset()")
-            my_world.reset()
+            collab_isaacsim.reset_world()
+            reset_two_frankas()
 
         if my_world.current_time_step_index == 2: #==2 after a world.reset
             if args.log_data: # and data_dict: #save after world.reset (from vr controller button callback)
                 sim_data_log.proccess_and_save_data(my_world.get_physics_dt())
-            collab_franka1.franka_setup_gains_reset()
+
             collab_isaacsim.set_solver_TGS
             # reset USD:
             collab_isaacsim.step_physics_and_render(1)
             collab_isaacsim.step_render(20) 
             collab_isaacsim.reshuffle_cubes(cube_xyz_ranges)
-            # vr_world_1.teleport_headset_to_start()
+
             run_sim_to_first_ee_goal = True # script will continue to compute first franka joint angles for initial p3x world_to_starteegoal and step sim to it
 
         if run_sim_to_first_ee_goal: #step sim to get robot from init USD state to the initial pose (p3x ee goal)
-            p3x.set_world_pose(position=ft.position_from_transform(collab_franka1.world_to_starteegoal) , orientation=ft.quat_from_transform(collab_franka1.world_to_starteegoal))
-            p3x_franka2.set_world_pose(position=ft.position_from_transform(collab_franka2.world_to_starteegoal) , orientation=ft.quat_from_transform(collab_franka2.world_to_starteegoal))
+            p3x.set_world_pose(position=ft.position_from_transform(collab_franka1.world_to_starteegoal) , 
+                                    orientation=ft.quat_from_transform(collab_franka1.world_to_starteegoal))
+            p3x_franka2.set_world_pose(position=ft.position_from_transform(collab_franka2.world_to_starteegoal) , 
+                                    orientation=ft.quat_from_transform(collab_franka2.world_to_starteegoal))
             collab_isaacsim.step_physics_and_render(10)
             
             world_to_eegoal_1 = ft.transform_from_pq(p=p3x.get_world_pose()[0], quat=p3x.get_world_pose()[1]) #ee_goal pose
-            eegoal_Pose_in_robotbase_1 = collab_franka1.update_solver_ee_goal_from_teleop_widget(world_to_eegoal_1, collab_franka1.robotbase_to_world, p4x)
+            eegoal_Pose_in_robotbase_1 = collab_franka1.update_solver_ee_goal_from_teleop_widget(
+                                            world_to_eegoal_1, collab_franka1.robotbase_to_world, p4x)
             
             world_to_eegoal_2 = ft.transform_from_pq(p=p3x_franka2.get_world_pose()[0], quat=p3x_franka2.get_world_pose()[1]) #ee_goal pose
-            eegoal_Pose_in_robotbase_2 = collab_franka2.update_solver_ee_goal_from_teleop_widget(world_to_eegoal_2, collab_franka2.robotbase_to_world, p4x_franka2)
+            eegoal_Pose_in_robotbase_2 = collab_franka2.update_solver_ee_goal_from_teleop_widget(
+                                            world_to_eegoal_2, collab_franka2.robotbase_to_world, p4x_franka2)
+
             #Get Franka on default position - not included in data saving:
             joint_commands_usd_franka1 = collab_franka1.curobomanager.compute_ik(eegoal_Pose_in_robotbase_1)
             joint_commands_usd_franka2 = collab_franka2.curobomanager.compute_ik(eegoal_Pose_in_robotbase_2)
@@ -443,8 +416,10 @@ def main():
             collab_isaacsim.step_physics_and_render(100)
             ###########################################
             # #Initialize mpc buffer, which needs an ee_goal_pose and current state
-            eegoal_Pose_in_robotbase_1 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_1), quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_1))
-            eegoal_Pose_in_robotbase_2 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_2), quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_2))
+            eegoal_Pose_in_robotbase_1 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_1), 
+                                                quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_1))
+            eegoal_Pose_in_robotbase_2 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_2), 
+                                                quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_2))
             
             collab_franka1.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_1)
             collab_franka2.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_2)
@@ -457,6 +432,12 @@ def main():
         if args.run_vr:
             # Update pose of the frame-prims following the vr controllers:
             vr_world_1.setpose_vrcontrollersfollower_frames()
+
+            vr_world_1.right_trigger_button_manager.update()
+            vr_world_1.right_squeeze_button_manager.update()
+            vr_world_2.left_trigger_button_manager.update()
+            vr_world_2.left_squeeze_button_manager.update()
+
         # Update ee goal (p3x has been updated by vr_world_1 internally, or by manual teleop)
         world_to_eegoal_1 = ft.transform_from_pq(p=p3x.get_world_pose()[0], quat=p3x.get_world_pose()[1]) #ee_goal pose
         world_to_eegoal_2 = ft.transform_from_pq(p=p3x_franka2.get_world_pose()[0], quat=p3x_franka2.get_world_pose()[1]) #ee_goal pose
@@ -464,7 +445,7 @@ def main():
         ######################################################################################
         # Compute eegoal_Pose_in_robotbase for planner solver:
         eegoal_Pose_in_robotbase_1 = collab_franka1.update_solver_ee_goal_from_teleop_widget(world_to_eegoal_1, collab_franka1.robotbase_to_world, p4x)
-        eegoal_Pose_in_robotbase_2 = collab_franka1.update_solver_ee_goal_from_teleop_widget(world_to_eegoal_2, collab_franka2.robotbase_to_world, p4x_franka2)
+        eegoal_Pose_in_robotbase_2 = collab_franka2.update_solver_ee_goal_from_teleop_widget(world_to_eegoal_2, collab_franka2.robotbase_to_world, p4x_franka2)
         
         ######################################################################################
         joint_commands_usd_franka1 = []

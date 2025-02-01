@@ -30,12 +30,20 @@
 """
 This script reads all the demo pkl files in demo_session_path and replays 
 demos (state replay) in Isaac Sim
+
+collab_sim/         # Root directory of collab_sim
+    ├── data/           # Data dir
+        ├── demosVR/    # Directory containing demo sessions
+            ├── demo_session_dirname/    # One demo session with multiple demos
+                ├── scene_demo.usda      # Scene USD file used in this demo session
+                ├── states_datetime.pkl  # pkl demo data (one file per demo)
+                ├── states_datetime.pkl  # pkl demo data (one file per demo)
+
 """
 ############################################################
 # EDIT config:
-# demo dir in DEMOS_VR_DIR:
+# demo_session_dirname is a folder expected at $COLLAB_DIR/data/demosVR/ (DEMOS_VR_DIR)
 demo_session_dirname = "output_demos_vr_example" #one franka vr teleop example data
-# demo_session_dirname = "output_2024_10_20_18_32_39_demo7_onefranka_resets"
 sample_states = 1
 steps_per_state = 1 #render steps ran for each new state
 ############################################################
@@ -49,7 +57,7 @@ import os
 import numpy as np
 ############################################################ 
 COLLAB_DIR = os.path.abspath(os.path.join(os.path.abspath(os.path.dirname(__file__)), '..'))
-DEMOS_VR_DIR = os.path.join(COLLAB_DIR, "data/demosVR") #dir for saving demo data for reply
+DEMOS_VR_DIR = os.path.join(COLLAB_DIR, "data/demosVR") #dir for saving demo data for replay
 DEMOSUSD_DIR = os.path.join(COLLAB_DIR, "data/demosUSD") #
 SCENEUSD_DIR = os.path.join(COLLAB_DIR, "data/sceneUSD") #example USD envs
 DATA_DIR = os.path.join(COLLAB_DIR, "collab_sim/data") # axis usd
@@ -57,16 +65,11 @@ DATA_DIR = os.path.join(COLLAB_DIR, "collab_sim/data") # axis usd
 # ArgumentParser must be created before SimulationApp
 demo_session_path = os.path.join(DEMOS_VR_DIR, demo_session_dirname)
 PARSER = argparse.ArgumentParser("Replay teleoperation data")
-PARSER.add_argument("--demo_session_path", type=str, default=demo_session_path, help="Path to demo session")
+PARSER.add_argument("--demo_session_path", type=str, default=demo_session_path, help="Path to demo session, a folder expected at $COLLAB_DIR/data/demosVR/ ")
 PARSER.add_argument("--steps_per_state", type=str, default=steps_per_state, help="The number of simulation steps per target state")
 PARSER.add_argument("--sample_states", type=str, default=sample_states, help="Subsampling steps")
 ARGS = PARSER.parse_args()
 ############################################################
-# # adding args here for ease of debug:
-# ARGS.scene_path = "/home/cpda/dev/collab-sim/data/demosUSD/demoUSD_stack6blocks/scene_demo.usda"
-# # ARGS.scene_path  = 'C:/Users/C/dev/collab-sim/data/sceneUSD/sceneUSD_stack6blocks/scene.usda'
-# ARGS.states_path = "/home/cpda/dev/collab-sim/data/demosVR/output_2023_09_07_16_56_06/states_2023_09_07_16_57_45.pkl"
-
 ARGS.scene_path =  ARGS.demo_session_path + "/scene_demo.usda" # dir with demo scene USD
 ARGS.states_path = ARGS.demo_session_path # dir with all demo files .pkl
 
@@ -87,6 +90,10 @@ from collab_sim import collab_teleop_utils
 def main():
     # Replay all demo files in folder demo_session_path:
 
+    #########################################
+    # Set up simulation env from demo USD:
+    #########################################
+
     # Load scene
     my_world = World(stage_units_in_meters=1.0)
     isaacsim_utils = collab_teleop_utils.IsaacSimUtils(world=my_world)
@@ -105,11 +112,17 @@ def main():
         if robot_prim:
             isaacsim_utils.disable_collisions(robot_prim)
 
+    #########################################
+    # Parse demo data:
+    #########################################
     demos_data = collab_teleop_utils.SimDataLog.load_demos_data(ARGS.states_path)
     isaacsim_utils.reset_world_visual(100)
 
     # input("Press any key to continue...")
 
+    #########################################
+    # Replay demo states in the simulation:
+    #########################################
     for this_demo_data in demos_data:
         # example: this_demo_data["states_list"][0]["/World/robot"]["joint_state"]["position"]
         states = this_demo_data.get('states_list', [])
@@ -117,6 +130,9 @@ def main():
         print(f"Sampled {len(sampled_states)}/{len(states)} states")
         isaacsim_utils.animate_states(my_world, sampled_states, ARGS.steps_per_state)
 
+    #########################################
+    # Leave sim running after replaying all demos:
+    #########################################
     print('All demos replayed. Now simulating indefinitely...')
     while APP.is_running():
         isaacsim_utils.step_render(10)

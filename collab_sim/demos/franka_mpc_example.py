@@ -27,18 +27,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-
-# isaac sim 2023.1.1
-# cuda 11.8, python 3.10
-
-    # collab-sim must be visible from python: 
+    # pre-req: SteamVR connection to VR headset running
+    # collab-sim must be visible from python
     # export PYTHONPATH=$PYTHONPATH:"<...>/collab-sim"
     # useconda
-    # usecuda118
-    # conda activate vrcurobo_202311
-    # useisaac23_1_1_rc8
+    # conda activate collab-sim
+    # ./setup_conda_env.sh 
     # vr: python franka_mpc_example.py --runvr --log_data --relevant_objects_str Cube P3 P4
+    #               --enable omni.kit.xr.profile.vr --enable isaacsim.xr.openxr
     # non-vr: python franka_mpc_example.py --use_keyboard --log_data --relevant_objects_str P3 P4
+   
 
 import argparse
 ############################################################
@@ -46,9 +44,9 @@ import argparse
 # Config:
 # config to be used if ran with no arguments, easy for debugging:
 debug_run_vr = False
-debug_print_degub = True
+debug_print_debug = True
 debug_use_keyboard = True 
-debug_log_data = True
+debug_log_data = False
 debug_relevant_objects_str = ["Cube", "P3", "P4"]
 load_scene_usd = False #only for dev
 ############################################################
@@ -56,7 +54,7 @@ load_scene_usd = False #only for dev
 # or overide args if provided:
 parser = argparse.ArgumentParser()
 parser.add_argument("--run_vr", action='store_true', default=debug_run_vr, help="Enable VR mode (default: debug)")
-parser.add_argument("--print_debug", action='store_true', default=debug_print_degub, help="Enable debug printing (default: debug)")
+parser.add_argument("--print_debug", action='store_true', default=debug_print_debug, help="Enable debug printing (default: debug)")
 parser.add_argument("--use_keyboard", action='store_true', default=debug_use_keyboard, help="Enable keyboard open/close Franka gripper (default: debug)")
 parser.add_argument("--log_data", action='store_true', default=debug_log_data, help="Enable data logging (default: debug)")
 parser.add_argument(
@@ -65,7 +63,8 @@ parser.add_argument(
     default=debug_relevant_objects_str, 
     help="str for prim names to save in addition to scene registry (robot) (default: ['Cube', 'P3', 'P4'])"
 )
-args = parser.parse_args()
+# args = parser.parse_args()
+args, unknown_args = parser.parse_known_args()
 ############################################################
 if args.print_debug:
     print (args)
@@ -85,14 +84,14 @@ from curobo.util_file import get_robot_configs_path, get_world_configs_path, joi
 tensor_args = TensorDeviceType()
 ############################################################
 # Isaac Sim:
-from omni.isaac.kit import SimulationApp
-
+from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": False})
 
-from omni.isaac.core import World
-# import carb
-from omni.isaac.core.utils.types import ArticulationAction
-from omni.isaac.core.utils.rotations import euler_angles_to_quat
+from isaacsim.core.api import World
+from isaacsim.robot.manipulators.examples.franka import KinematicsSolver
+from isaacsim.core.utils.types import ArticulationAction
+from isaacsim.core.utils.rotations import euler_angles_to_quat
+
 from typing import Optional
 import omni.appwindow  # Contains handle to keyboard
 import time
@@ -223,21 +222,31 @@ p3x = collab_isaacsim.create_visual_frame("P3", "/World/DebugFrames/P3",
                                         position=ft.position_from_transform(collab_franka1.world_to_starteegoal) , orientation=ft.quat_from_transform(collab_franka1.world_to_starteegoal) )    
 
 if args.run_vr:
-    from collab_sim import collab_vrteleop #Import VR module, enables VR 
+    from collab_sim import collab_vrteleop 
     VRworld = collab_vrteleop.VRTeleop(world=my_world)
-    VRworld.set_up_vr_teleop(robot=my_franka, eegoalprim=p3x) #Assign prim for vr teleop
+    while not VRworld.is_vr_initialized():  
+        print ("waiting for VR to start")
+        my_world.step(render=True)
+    VRworld.set_up_vr_devices_with_active_vr() #get profile and components that need vr enabled already
+    VRworld.set_up_vr_teleop_frames(robot=my_franka, eegoalprim=p3x) #Assign prim for vr teleop
+    # VRworld.init_vr_buttons_teleop_default()
+    VRworld.init_vr_leftcont_buttons_righthanded_teleop_default() #**Left hand: trigger = reset env, side button = not used**
+    VRworld.init_vr_rightcont_buttons_righthanded_teleop_default() #**Right hand: trigger = teleop, side button = gripper open/close**
+ 
+
 ############################################################
 
 collab_isaacsim.reset_world()
-collab_franka1.franka_setup_gains_reset() #needed after reset - my_world.reset() initializes articulation_view, and resets changes to gains
+collab_isaacsim.move_robot_to_root_transform(my_franka, 
+                                             world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world, 
+                                                                                     robot_origin_quat_in_world))
+
 collab_isaacsim.set_solver_TGS()
 
 if args.log_data:
     sim_data_log = collab_teleop_utils.SimDataLog(args.relevant_objects_str, my_world)
     sim_data_log.save_world_usd(my_world)
 
-if args.run_vr:
-    VRworld.init_vr_buttons()
 
 
 def main():
@@ -255,19 +264,21 @@ def main():
 
     ########################################################################################################################
     #######################  SIM LOOP ######################################################################################
-
     while simulation_app.is_running():
         # start_iteration_time = time.time()
         collab_isaacsim.step_physics_and_render(1) #steps physics if my_world.is_playing, renders either play/stop to keep gui interactive
 
         if my_world.is_stopped(): #reset after stopping sim on the gui
             print ("my_world.reset()")
-            my_world.reset()
-
+            collab_isaacsim.reset_world()
+            collab_isaacsim.move_robot_to_root_transform(my_franka, 
+                                             world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world, 
+                                                                                     robot_origin_quat_in_world))
+            
         if my_world.current_time_step_index == 2: #==2 after a world.reset
             if args.log_data: # and data_dict: #save after world.reset (from vr controller button callback)
                 sim_data_log.proccess_and_save_data(my_world.get_physics_dt())
-            collab_franka1.franka_setup_gains_reset()
+
             collab_isaacsim.set_solver_TGS
             # reset USD:
             collab_isaacsim.step_physics_and_render(1)
@@ -295,9 +306,14 @@ def main():
         ######################################################################################
         # Compute world_to_eegoal:
 
-        if args.run_vr:
+        if args.run_vr and VRworld.is_vr_initialized():
             # Update pose of the frame-prims following the vr controllers:
+            # print("updating vr controller follower frames")
             VRworld.setpose_vrcontrollersfollower_frames()
+            VRworld.left_trigger_button_manager.update()
+            VRworld.left_squeeze_button_manager.update()
+            VRworld.right_trigger_button_manager.update()
+            VRworld.right_squeeze_button_manager.update()
         # Update ee goal (p3x has been updated by VRworld internally, or by manual teleop)
         world_to_eegoal = ft.transform_from_pq(p=p3x.get_world_pose()[0], quat=p3x.get_world_pose()[1]) #ee_goal pose
         
@@ -307,19 +323,26 @@ def main():
         
         ######################################################################################
         joint_commands_usd = []
-        collab_franka1.curobomanager.step_MPC (collab_franka1.world_to_robotbase, eegoal_Pose_in_robotbase)
-        if not args.run_vr:
-            collab_isaacsim.draw_points(collab_franka1.curobomanager.mpc_solver.get_visual_rollouts(), collab_franka1.world_to_robotbase)
-        joint_commands_usd.append(collab_franka1.curobomanager.mpc_result.js_action.position.cpu().numpy()) #only one command
 
-        for waypoint in joint_commands_usd: #expect one waypoint for ik or MPC, multiple for motion_gen
-            articulation_action_cu = ArticulationAction(joint_positions=waypoint)
-            articulation_action_cu.joint_indices = [0, 1, 2, 3, 4, 5, 6]
-            # command the robot:
-            articulation_controller.apply_action(articulation_action_cu)
+        try:
+            collab_franka1.curobomanager.step_MPC (collab_franka1.world_to_robotbase, eegoal_Pose_in_robotbase)
+        
+            if not args.run_vr:
+                collab_isaacsim.draw_points(collab_franka1.curobomanager.mpc_solver.get_visual_rollouts(), collab_franka1.world_to_robotbase)
+            
+            joint_commands_usd.append(collab_franka1.curobomanager.mpc_result.js_action.position.cpu().numpy()) #only one command
 
-            if args.log_data:
-                sim_data_log.append_states_this_sim_step()  
+            for waypoint in joint_commands_usd: #expect one waypoint for ik or MPC, multiple for motion_gen
+                articulation_action_cu = ArticulationAction(joint_positions=waypoint)
+                articulation_action_cu.joint_indices = [0, 1, 2, 3, 4, 5, 6]
+                # command the robot:
+                articulation_controller.apply_action(articulation_action_cu)
+
+                if args.log_data:
+                    sim_data_log.append_states_this_sim_step()  
+
+        except Exception as e:
+            print(f"step_MPC and robot command failed with error: {e}. Retrying...")
 
            
 ############################################################

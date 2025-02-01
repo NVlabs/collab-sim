@@ -41,15 +41,15 @@ import os
 from typing import Optional
 ############################################################
 # XR:
-from omni.isaac.core.utils.extensions import enable_extension
-enable_extension("omni.kit.xr.profile.vr")
-from omni.kit.xr.core import XRUtils
+# from omni.isaac.core.utils.extensions import enable_extension
+# enable_extension("omni.kit.xr.profile.vr")
+# from omni.kit.xr.core import XRUtils
 from omni import usd
 import carb
-carb.settings.get_settings().set("/xr/profile/vr/enabled", True) 
-# buttons:
+# carb.settings.get_settings().set("/xr/profile/vr/enabled", True) 
+
 from omni.kit.xr.core import XRCore
-from omni.kit.xr.core import XRGestureEventType
+# from omni.kit.xr.core import XRGestureEventType
 ############################################################
 # Isaac Sim:
 from omni import usd
@@ -57,7 +57,7 @@ from omni.isaac.core.prims.xform_prim import XFormPrim
 from omni.isaac.cortex.cortex_object import CortexObject
 from scipy.spatial.transform import Rotation as R
 from pxr import Gf, UsdGeom, Sdf
-from omni.isaac.core.utils.prims import add_reference_to_stage
+from isaacsim.core.utils.stage import add_reference_to_stage
 ############################################################
 # collab-sim data dir 
 EXT_DIR = os.path.abspath(os.path.join(os.path.abspath(os.path.dirname(__file__))))
@@ -73,14 +73,29 @@ class VRTeleop(ABC):
 
     def __init__(self, world):
         """ 
-        Initializes the VR class, get current profile
+        Initializes the VR class minimally 
         """
         print ("VRTeleop initialization ==============")
         self.world = world     
+        
+    def is_vr_initialized(self):
+        """ 
+        Checks if VR is running
+        """
+        return XRCore.get_singleton().is_xr_enabled()
+
+    def set_up_vr_devices_with_active_vr(self):
+        """
+        Init VR class components that need VR enabled already
+        """
         self.profile = XRCore.get_singleton().get_current_profile()
+        self.left_controller_device  = XRCore.get_singleton().get_input_device("/user/hand/left")
+        self.right_controller_device = XRCore.get_singleton().get_input_device("/user/hand/right")
+        # while not self.left_controller_device.get_input_names() > 0:
+        #     print("waiting for input device to be ready")
+        #     my_world.step(render=True)
 
-
-    def set_up_vr_teleop(self, robot, eegoalprim):
+    def set_up_vr_teleop_frames(self, robot, eegoalprim):
         """ 
         Sets default teleop workflow:
         1-creates visual prims to follow the vr controllers
@@ -184,180 +199,118 @@ class VRTeleop(ABC):
         self.motion_target_p = current_p
         self.motion_target_q = q
         self.vr_target_motion_controller.set_world_pose(current_p, q)    
-
-    def get_device_prim_path(self, device_name: str) -> Optional[str]:
-        """ 
-        Gets the prim path for xr devices, e.g. vr controllers
-        """
-        xr_gui_manager = self.profile.get_xr_gui_manager()
-        xr_gui_layer = xr_gui_manager.get_xr_usd_layer("xr_gui")
-
-        device = self.profile.get_device(device_name)
-        if not device:
-            return None
-
-        prim_path = xr_gui_layer.ensure_device_prim_path(device)
-        if prim_path.startswith("/_xr_gui/noxr/"):
-            return None
-
-        local_stage = usd.get_context().get_stage()
-        if not local_stage.GetPrimAtPath(prim_path):
-            return None
-
-        return prim_path    
-
-
+    
+        
     def get_vr_controllers_poses (self):
-        # print("cd get_vr_controllers_poses -------+++++++++++++++++")
-        left_controller_prim_path = self.get_device_prim_path("xrcontroller0")
-        right_controller_prim_path = self.get_device_prim_path("xrcontroller1")
-        mat_left = XRUtils.get_singleton().get_world_transform_matrix(left_controller_prim_path).RemoveScaleShear()
-        mat_right = XRUtils.get_singleton().get_world_transform_matrix(right_controller_prim_path).RemoveScaleShear()
-        # print (mat_left)
-        # print (mat_right)
+        mat_left  = self.left_controller_device.get_virtual_world_pose() 
+        mat_right = self.right_controller_device.get_virtual_world_pose() 
+        # print(f"###Pose left controller: {mat_left}")
+        # print(f"###Pose right controller: {mat_right}")
         return (mat_left, mat_right)
 
 
-    def action_primary_select_teleopdefault (self, ev):
-        """
-        Default callback for triger button on primary controller
-        Action called each step that button is pressed
-        Enabled if run init_vr_buttons()
-        This action sets the position of the end-effector goal for teleop
-        (This pose is to be read in the main sim loop to command the teleop)
-        """
+    def teleop_action_on_button_press(self):
+        print("Down")
 
-        if ev.type == XRGestureEventType.begin:
-            # press BEGIN condition
-            print("Down")
+        # current pose of VR right controller (at button press):
+        vr_p, vr_quat = self.target_prim_vrright.get_world_pose()
+        self.world_to_vr_start = ft.transform_from_pq(p=vr_p, quat=vr_quat)
 
-            # current pose of VR right controller (at button press):
-            vr_p, vr_quat = self.target_prim_vrright.get_world_pose()
-            self.world_to_vr_start = ft.transform_from_pq(p=vr_p, quat=vr_quat)
+        # current pose of EE goal:
+        current_p, current_q = self.vr_target_motion_controller.get_world_pose()
+        self.world_to_eegoal_start = ft.transform_from_pq(p=current_p, quat=current_q) #ee_goal pose
 
-            # current pose of EE goal:
-            current_p, current_q = self.vr_target_motion_controller.get_world_pose()
-            self.world_to_eegoal_start = ft.transform_from_pq(p=current_p, quat=current_q) #ee_goal pose
 
-        elif ev.type == XRGestureEventType.end:
-            print("Release")
-            self.CONTROL_RIGHT = 0
+    
+    def teleop_action_while_button_pressed(self):
+        # while pressed:
+        vr_p, vr_quat = self.target_prim_vrright.get_world_pose()
+        self.world_to_vr_new = ft.transform_from_pq(p=vr_p, quat=vr_quat)
 
+        delta_vr_t_in_world, delta_vr_rot_in_start_vr_frame = ft.delta_transform(self.world_to_vr_start, self.world_to_vr_new)
+
+        eegoal_rot_start_in_world = ft.rotation_from_transform(self.world_to_eegoal_start)
+        eegoal_rot_new_in_world = ft.concatenate_transforms(delta_vr_rot_in_start_vr_frame, eegoal_rot_start_in_world)
+        
+        self.world_to_eegoal_new = ft.transform_from_pq( ft.position_from_transform(self.world_to_eegoal_start)+delta_vr_t_in_world,
+                                                            t3d.quaternions.mat2quat(eegoal_rot_new_in_world)   )
+        
+        # Set position of VR goal frame - to be read on main sim loop:
+        self.vr_target_motion_controller.set_world_pose(ft.position_from_transform(self.world_to_eegoal_new), ft.quat_from_transform(self.world_to_eegoal_new)) 
+
+
+
+    def teleop_action_on_button_release(self):
+        print("Release")
+        self.CONTROL_RIGHT = 0
+
+
+    def gripper_action_on_button_press(self):
+        print("Gripper action ====================<<o>>==================")
+        if self.gripper_opened:
+            self.robot.gripper.close() 
         else:
-            # while pressed:
-            vr_p, vr_quat = self.target_prim_vrright.get_world_pose()
-            self.world_to_vr_new = ft.transform_from_pq(p=vr_p, quat=vr_quat)
-
-            delta_vr_t_in_world, delta_vr_rot_in_start_vr_frame = ft.delta_transform(self.world_to_vr_start, self.world_to_vr_new)
-
-            eegoal_rot_start_in_world = ft.rotation_from_transform(self.world_to_eegoal_start)
-            eegoal_rot_new_in_world = ft.concatenate_transforms(delta_vr_rot_in_start_vr_frame, eegoal_rot_start_in_world)
-            
-            self.world_to_eegoal_new = ft.transform_from_pq( ft.position_from_transform(self.world_to_eegoal_start)+delta_vr_t_in_world,
-                                                             t3d.quaternions.mat2quat(eegoal_rot_new_in_world)   )
-            
-            # Set position of VR goal frame - to be read on main sim loop:
-            self.vr_target_motion_controller.set_world_pose(ft.position_from_transform(self.world_to_eegoal_new), ft.quat_from_transform(self.world_to_eegoal_new)) 
+            self.robot.gripper.open() 
+        self.gripper_opened = not self.gripper_opened    
 
 
-    def action_primary_grab_teleopdefault (self, ev):
+    def reset_action_on_button_press (self):
         """
-        Default callback for side buttons on primary controller
-        Action called each step that button is pressed
-        Enabled if run init_vr_buttons()
-        This action opens/closes the gripper
-        """
-        if ev.type == XRGestureEventType.begin:
-            # press BEGIN condition
-            if self.gripper_opened:
-                self.robot.gripper.close() 
-            else:
-                self.robot.gripper.open() 
-            self.gripper_opened = not self.gripper_opened    
-        elif ev.type == XRGestureEventType.end:
-            print("Release1")     
-
-
-    def action_secondary_select_teleopdefault (self, ev):
-        """
-        Default callback for triger button on primary controller
+        Default callback for triger button on secondary controller
         Action called each step that button is pressed
         Enabled if run init_vr_buttons()
         This action resets the enviroment to start a new episode
         """
         # action_primary_down called each step that button is pressed
-        if ev.type == XRGestureEventType.begin:
-            # press BEGIN condition
-            print("RESET TELEOP FRAME")
-            # there is a segfault issue here if the headset or controllers were not moving
-            # need to be active (colored) in steamvr   
-            # self.world.stop()
-            self.world.reset() #(soft=False)
-            self.teleport_headset_to_start()
-        elif ev.type == XRGestureEventType.end:
-            print("action_secondary_select_teleopdefault Release")            
+        # if ev.type == XRGestureEventType.begin:
+        # press BEGIN condition
+
+        print("RESET TELEOP FRAME")
+        # there is a segfault issue here if the headset or controllers were not moving
+        # need to be active (colored) in steamvr   
+        # self.world.stop()
+        self.world.reset() #(soft=False)
+        self.teleport_headset_to_start()
+        self.reset_target_frame()
 
 
-    # @abstractmethod
-    def press1(self, ev):
+    def init_vr_leftcont_buttons_righthanded_teleop_default(self):
         """
-        Example placeholder for custom button actions
-        Action called each step that button is pressed
-        This method must be implemented in the subclass
+        - Single arm teleop default
+        - Creates buttons/action mapping to functions
+        - For right-handed defaults teleop
+        - **Left hand: trigger = reset env, side button = not used**
         """
-        pass
 
+        # left controller:
+        self.left_trigger_button_manager = VRButtonManager(input_device_path = "/user/hand/left", button_name = "trigger", gesture_name = "click",
+                                                           on_press=self.reset_action_on_button_press, 
+                                                           on_while_pressed=None, 
+                                                           on_release=None)
+        self.left_squeeze_button_manager = VRButtonManager(input_device_path = "/user/hand/left", button_name = "squeeze", gesture_name = "click",
+                                                           on_press=None, on_while_pressed=None, on_release=None)
+        self.left_trigger_button_manager.print_all_buttons_this_device()
+        
 
-    # @abstractmethod
-    def press2(self, ev):
+    def init_vr_rightcont_buttons_righthanded_teleop_default (self):
         """
-        Example placeholder for custom button actions
-        Action called each step that button is pressed
-        This method must be implemented in the subclass
+        - Single arm teleop default
+        - Creates buttons/action mapping to functions
+        - For right-handed defaults teleop
+        - **Right hand: trigger = teleop, side button = gripper open/close**
         """
-        pass
+        self.right_trigger_button_manager = VRButtonManager(input_device_path = "/user/hand/right", button_name = "trigger", gesture_name = "click",
+                                                    on_press=self.teleop_action_on_button_press, 
+                                                    on_while_pressed=self.teleop_action_while_button_pressed,
+                                                    on_release=self.teleop_action_on_button_release)
+        self.right_squeeze_button_manager = VRButtonManager(input_device_path = "/user/hand/right", button_name = "squeeze", gesture_name = "click",
+                                                            on_press=self.gripper_action_on_button_press,
+                                                            on_while_pressed=None, 
+                                                            on_release=None)
+        self.right_trigger_button_manager.print_all_buttons_this_device()
 
-
-    def init_vr_buttons_general(self, action_callback_pairs: List[Tuple[str, Callable]]):
-        """ 
-        -Creates the callbacks for vr controller buttons,
-        -given a general mapping in action_callback_pairs
-        """
-        if XRCore.get_singleton().is_xr_enabled():
-            self.profile = XRCore.get_singleton().get_current_profile()
-            profile = self.profile
-            print ("Profile: {profile}")
-
-            avatar = profile.get_avatar()
-            print ("Avatar: {avatar}")
-
-            layers = avatar.get_tool_layers()
-            interaction_layer = layers[0]
-            
-            for action_name, callback_name in action_callback_pairs:
-                gestures = interaction_layer.get_gestures_for_action(action_name)
-                custom_gesture = gestures[0]
-                interaction_layer.bind_gesture(custom_gesture, callback_name)
-        else:
-            print("Tried to initialize buttons but VR is not running")
-
-
-    def init_vr_buttons(self):
-        """ 
-        -Creates mapping from buttons to callbacks
-        -This is the default mapping, but the user might create 
-        a custom mapping and call init_vr_buttons_general
-        -Primary and secondary controllers are the 2 vr controllers
-        -select = trigger
-        -grab = side buttons
-        """
-        # vr buttons callbacks:
-        action_callback_pairs = [
-            ("primary_controller:sel:select",   self.action_primary_select_teleopdefault),
-            ("primary_controller:grab",         self.action_primary_grab_teleopdefault),
-            ("secondary_controller:sel:select", self.action_secondary_select_teleopdefault) # active for resets, remove for dual arm 
-        ]
-        self.init_vr_buttons_general(action_callback_pairs)
+        
+        
 
     def teleport_headset_to_pose(self, pose_matrix4d):
         """ 
@@ -377,7 +330,7 @@ class VRTeleop(ABC):
         mat1 = xform.ComputeLocalToWorldTransform(float("NaN"))
         rotation_matrix = Gf.Matrix4d().SetRotate(Gf.Rotation(Gf.Vec3d(0, 0, 1), -90))
         mat = rotation_matrix * mat1
-        offset = vec = Gf.Vec3d(-0.1, 0.3, 0.6) 
+        offset = vec = Gf.Vec3d(-0.1, 0.3, 0.2) 
         mat = mat * Gf.Matrix4d().SetTranslate(offset)
         self.teleport_headset_to_pose(mat)
 
@@ -409,3 +362,71 @@ class VRTeleop(ABC):
         np_p = np.array(translation)
 
         return np_p, np_quat_Wxyz, np_quat_xyzW
+    
+
+class VRButtonManager():
+
+    def __init__(self, input_device_path, button_name, gesture_name, on_press=None, on_while_pressed=None, on_release=None):
+        
+        self.on_press = on_press or self.default_on_press
+        self.on_while_pressed = on_while_pressed or self.default_while_pressed
+        self.on_release = on_release or self.default_on_release
+
+        self.prev_state = 0
+        self.input_device_path = input_device_path
+        self.button_name = button_name
+        self.gesture_name = gesture_name
+        self.input_device = XRCore.get_singleton().get_input_device(input_device_path)
+        
+
+    def default_on_press(self):
+        print("Button pressed")
+
+    def default_while_pressed(self):
+        print("Button is being held down")
+
+    def default_on_release(self):
+        print("Button released")
+
+    def read_button_state(self):
+        current_state = self.input_device.get_input_gesture_value(self.button_name, self.gesture_name)
+        return current_state
+
+    def update (self):
+        # Queries state of the button and
+        # decides which function to call depending on state 
+        # Gestures "click" have a press 0-->1,1,...,1-->0 logic on update
+        # Which maps to on_press, on_while_pressed, on_release
+        # Gestures "x" and "y" always call on_press on update
+
+        current_state = self.read_button_state()
+        print (f"Button state: {current_state}")
+
+        if self.gesture_name == "click":
+
+            if current_state == 1 and self.prev_state == 0:
+                self.on_press()
+
+            elif current_state == 1 and self.prev_state == 1:
+                self.on_while_pressed()
+
+            elif current_state == 0 and self.prev_state == 1:
+                self.on_release()
+
+            # Update for next iteration
+            self.prev_state = current_state
+
+        elif self.gesture_name == "x" or "y":
+            self.on_press() # always call on_press for joystick
+
+
+
+    def print_all_buttons_this_device(self):
+        button_names = self.input_device.get_input_names()
+        if len(button_names) > 0:
+            for buttonnameXRToken in button_names:
+                gestures = self.input_device.get_input_gesture_names(buttonnameXRToken)
+                for gestureXRToken in gestures:
+                    value = self.input_device.get_input_gesture_value(buttonnameXRToken, gestureXRToken)
+                    print(f"Button {buttonnameXRToken}, Gesture {gestureXRToken}: {value} ")
+
