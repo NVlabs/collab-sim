@@ -46,7 +46,7 @@ from curobo.rollout.rollout_base import Goal
 from curobo.wrap.reacher.mpc import MpcSolver, MpcSolverConfig
 tensor_args = TensorDeviceType()
 # Isaac Sim
-from omni.isaac.core.utils.types import ArticulationAction
+from isaacsim.core.utils.types import ArticulationAction
 # collab-sim
 from collab_sim import collab_teleop_utils
 ft = collab_teleop_utils.FramesTransforms()
@@ -111,7 +111,7 @@ class activerobot():
         """
         # world_to_eegoal is the teleop widget frame 
         robotbase_to_eegoal = ft.concatenate_transforms(robotbase_to_world, world_to_eegoal)
-        eegoal_to_pandahand = ft.transform_from_pq(p=[0.0,0.0,-0.1], quat=ft.identity_quat()) #local translation on ee_goal frame, fixed
+        eegoal_to_pandahand = ft.transform_from_pq(p=[0.0,0.0,-0.1], quat=np.array([0.0, 0.0, 0.0, 1.0])) #local translation on ee_goal frame, fixed
         robotbase_to_pandahand = ft.concatenate_transforms(robotbase_to_eegoal, eegoal_to_pandahand)
 
         solver_ee_goal_p = ft.position_from_transform(robotbase_to_pandahand)  

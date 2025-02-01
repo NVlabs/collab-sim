@@ -42,22 +42,27 @@ from typing import List
 from typing import Any
 import os
 ############################################################
-from omni.isaac.core.utils.stage import get_stage_units
-from omni.isaac.core.prims.xform_prim import XFormPrim
+
+from isaacsim.core.api.objects.cuboid import DynamicCuboid, FixedCuboid, VisualCuboid
+from isaacsim.core.prims import RigidPrim 
+from isaacsim.core.prims import Articulation
+from isaacsim.core.api.objects import FixedCuboid, VisualCuboid
+from isaacsim.core.prims import SingleXFormPrim as XFormPrim
+from isaacsim.core.utils.prims import is_prim_path_valid
+from isaacsim.core.utils.stage import add_reference_to_stage
+from isaacsim.core.utils.stage import get_stage_units
+from isaacsim.core.utils.string import find_unique_string_name
+from isaacsim.storage.native import get_assets_root_path
+from isaacsim.robot.manipulators.examples.franka import Franka
+from isaacsim.robot.manipulators.examples.franka import KinematicsSolver
+from isaacsim.util.debug_draw import _debug_draw
+
+from isaacsim.core.prims import SingleGeometryPrim #former GeometryPrim 
+# from omni.isaac.core.prims.geometry_prim import GeometryPrim
+
 from scipy.spatial.transform import Rotation 
-from omni.isaac.core.objects import DynamicCuboid, VisualCuboid
-from omni.isaac.core.articulations import Articulation
-from omni.isaac.core.prims.rigid_prim import RigidPrim
 from pxr import Usd, UsdGeom, Gf, UsdPhysics, Sdf, UsdLux
-from omni.isaac.core.utils.prims import add_reference_to_stage
-from omni.isaac.core.prims.geometry_prim import GeometryPrim
-from omni.isaac.core.utils.stage import add_reference_to_stage
-from omni.isaac.core.utils.nucleus import get_assets_root_path
-from omni.isaac.core.utils.string import find_unique_string_name
-from omni.isaac.core.utils.prims import is_prim_path_valid
-from omni.isaac.franka.franka import Franka
-from omni.isaac.franka import KinematicsSolver
-from omni.isaac.debug_draw import _debug_draw
+
 ############################################################ 
 COLLAB_DIR = os.path.abspath(os.path.join(os.path.abspath(os.path.dirname(__file__)), '..'))
 DEMOS_VR_DIR = os.path.join(COLLAB_DIR, "data/demosVR") #dir for saving demo data for reply
@@ -116,7 +121,7 @@ class IsaacSimUtils(object):
         # print (self.world.current_time_step_index)
         # reset USD:
         self.step_physics_and_render (1) #one physics step is needed for world to go to USD init state
-        self.step_render(8) #it takes around 6 render steps to get the stage visually to the USD init state
+        self.step_render(8) #recheck
 
     def config_simulation_physics(self):
         # physics_context=my_world.get_physics_context()
@@ -229,6 +234,7 @@ class IsaacSimUtils(object):
         }
 
         self.world.scene.add(XFormPrim(prim_path="/World/collisionGroupsTable", name="collision_groups_xform_table"))
+        # self.world.scene.add(XFormPrim(prim_paths_expr="/World/collisionGroupsTable", name="collision_groups_xform_table"))
         # self._setup_simulation()
 
         self.load_usd (usd_path=self.asset_paths["shop_table"], prim_path="/World/env/table", prim_name="table_ref_geom", 
@@ -237,37 +243,33 @@ class IsaacSimUtils(object):
         self.load_usd (usd_path=self.asset_paths["tooling_plate"], prim_path="/World/env/tooling_plate", prim_name="tooling_plate_geom", 
                             pos=p+np.array([0, 0, 0.815]), quat=None, scale=0.01)
         
-        # add_reference_to_stage(usd_path=self.asset_paths["shop_table"], prim_path="/World/env/table")
-        # self.world.scene.add(GeometryPrim(prim_path="/World/env/table", name=f"table_ref_geom", collision=True))
-        # self._table_position = np.array([0.5, 0.0, 0.0])
-        # self._table_scale = 0.01
-        # self._table_ref_geom.set_local_scale(np.array([self._table_scale]))
-        # self._table_ref_geom.set_world_pose(position=self._table_position)
-
-        # add_reference_to_stage(usd_path=self.asset_paths["tooling_plate"], prim_path="/World/env/tooling_plate")
-        # self.world.scene.add(GeometryPrim(prim_path="/World/env/tooling_plate", name=f"tooling_plate_geom", collision=True))
-
         return
 
 
 
     def load_franka (self, world_to_robotbase, franka_name='Franka', prim_path='/World/robot'):
-        self.world.scene.add(Franka(prim_path=prim_path, name=franka_name))
-        franka_xform_prim = XFormPrim(prim_path=prim_path, visible=True)
-        franka_xform_prim.set_world_pose(self.ft.position_from_transform(world_to_robotbase), self.ft.quat_from_transform(world_to_robotbase))
+        self.robot = Franka(prim_path=prim_path, name=franka_name, 
+                            position = np.array([0,0,0]), 
+                            orientation = np.array([1,0,0,0]))
+        self.move_robot_to_root_transform(self.robot, world_to_robotbase)
+        self.world.scene.add(self.robot)
+
+        my_controller = KinematicsSolver(self.robot) #franka class only for IK debug
+        articulation_controller = self.robot.get_articulation_controller() 
+
+        return self.robot, my_controller, articulation_controller        
         ######################################
-        my_franka = self.world.scene.get_object(franka_name)
-        my_controller = KinematicsSolver(my_franka) #franka class only for IK debug
-        articulation_controller = my_franka.get_articulation_controller() 
-        return my_franka, my_controller, articulation_controller        
-        ######################################
+
+    def move_robot_to_root_transform(self, robot, world_to_robotbase):
+        robot.set_world_pose(self.ft.position_from_transform(world_to_robotbase), 
+                                  self.ft.quat_from_transform(world_to_robotbase))
 
 
     def load_usd (self, usd_path, prim_path, prim_name, pos, quat, scale):
         prim = add_reference_to_stage(usd_path=usd_path, prim_path=prim_path) # Loads the USD at prim_path
         xform_prim = XFormPrim(prim_path=prim_path, position=[0, 0, 0], orientation=[1, 0, 0, 0], visible=True)
         xform_prim.set_world_pose(pos, quat)
-        self.world.scene.add(GeometryPrim(prim_path=prim_path, name=prim_name, collision=True))
+        self.world.scene.add(SingleGeometryPrim(prim_path=prim_path, name=prim_name, collision=True))
         p = self.world.scene.get_object(prim_name)
         p.set_local_scale(np.array([scale]))
         return prim, xform_prim
@@ -524,8 +526,6 @@ class IsaacSimUtils(object):
         # xform_prim_names = get_xform_prim_names("/World",my_world)
         # print(xform_prim_names)
         """
-        # TODO for adding all prims in big usd scene to the scene registry?
-
         stage = omni.usd.get_context().get_stage()
         xform_prim_names = []
         root_prim = stage.GetPrimAtPath(root_path)
@@ -557,7 +557,7 @@ class IsaacSimUtils(object):
             pose = FramesTransforms.transform_from_pq(p=body.get_world_pose()[0], quat=body.get_world_pose()[1])
         else:
             pose = FramesTransforms.identity_transform()
-            print ("get_pose(body): Issue with poses zzzzzzzzzzzzzz")
+            print ("get_pose(body): Issue with poses")
         return pose
 
     @staticmethod
