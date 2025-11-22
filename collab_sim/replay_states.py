@@ -66,8 +66,8 @@ DATA_DIR = os.path.join(COLLAB_DIR, "collab_sim/data") # axis usd
 demo_session_path = os.path.join(DEMOS_VR_DIR, demo_session_dirname)
 PARSER = argparse.ArgumentParser("Replay teleoperation data")
 PARSER.add_argument("--demo_session_path", type=str, default=demo_session_path, help="Path to demo session, a folder expected at $COLLAB_DIR/data/demosVR/ ")
-PARSER.add_argument("--steps_per_state", type=str, default=steps_per_state, help="The number of simulation steps per target state")
-PARSER.add_argument("--sample_states", type=str, default=sample_states, help="Subsampling steps")
+PARSER.add_argument("--steps_per_state", type=int, default=steps_per_state, help="The number of simulation steps per target state")
+PARSER.add_argument("--sample_states", type=int, default=sample_states, help="Subsampling steps")
 ARGS = PARSER.parse_args()
 ############################################################
 ARGS.scene_path =  ARGS.demo_session_path + "/scene_demo.usda" # dir with demo scene USD

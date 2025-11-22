@@ -22,6 +22,14 @@ from omni.isaac.franka import Franka
 import os
 
 MATERIAL_DIR_PATH = os.path.realpath(os.path.dirname(__file__))
+
+# Ghost material color constants
+GHOST_COLOR_MIN = 0.0001
+GHOST_COLOR_MAX = 1.0
+COLOR_RED_EMISSION = (1.0, 0.0, 0.0)
+COLOR_YELLOW_EMISSION = (1.0, 1.0, 0.0)
+COLOR_GREEN_EMISSION = (0.0, 1.0, 0.0)
+COLOR_GREY_EMISSION = (1.0, 1.0, 1.0)
 def load_ghost_material():
     success = omni.kit.commands.execute(
         "CreateMdlMaterialPrim",
@@ -87,7 +95,7 @@ class GhostFranka(Franka):
         gripper_closed_position: Optional[np.ndarray] = None,
         disable_collisions: bool = True,
     ) -> None:
-            super().__init__(prim_path, name, usd_path, position, orientation,end_effector_prim_name, gripper_dof_names, gripper_open_position, gripper_closed_position)
+            super().__init__(prim_path, name, usd_path, position, orientation, end_effector_prim_name, gripper_dof_names, gripper_open_position, gripper_closed_position)
 
             self.material, self.material_inputs = load_ghost_material()
             self.material_inputs["inputs:transmission_color"].Set((1, 1, 1))
@@ -104,8 +112,7 @@ class GhostFranka(Franka):
             for p in [self.viz_left_finger, self.viz_right_finger, self.viz_palm]:
                 viz_mesh = get_prim_at_path(f"{p.GetPath()}/mesh")
                 viz_mesh.CreateAttribute("primvars:doNotCastShadows", Sdf.ValueTypeNames.Bool).Set(True)
-            # FIXME: Cannot remove ancestral prim...
-            # deleted = delete_prim(self.camera.GetPath())
+            # Note: Camera prim cannot be removed due to USD ancestral prim limitations
 
     def disable_collisions(self):
         # Disable colliders
@@ -132,21 +139,21 @@ class GhostFranka(Franka):
         transmission = 1.0 - opacity
 
         def clip(value):
-            # Inputs seem to behave differently for 0 and close to 0 for some reason...
-            return Gf.Vec3f(*np.clip(value, 0.0001, 1.0))
+            """Clip color values to avoid rendering artifacts at 0.0."""
+            return Gf.Vec3f(*np.clip(value, GHOST_COLOR_MIN, GHOST_COLOR_MAX))
         # The colors you don't absorb will shine through.
         # The color you emit shows in the absence of other colors
         if color == "red":
-            self.material_inputs["inputs:emission_color"].Set((1., .0, .0))
-            self.material_inputs["inputs:absorption"].Set(clip((.0, transmission, transmission)))
+            self.material_inputs["inputs:emission_color"].Set(COLOR_RED_EMISSION)
+            self.material_inputs["inputs:absorption"].Set(clip((0.0, transmission, transmission)))
         elif color == "yellow":
-            self.material_inputs["inputs:emission_color"].Set((1., 1., .0))
-            self.material_inputs["inputs:absorption"].Set(clip((.0, .0, transmission)))
+            self.material_inputs["inputs:emission_color"].Set(COLOR_YELLOW_EMISSION)
+            self.material_inputs["inputs:absorption"].Set(clip((0.0, 0.0, transmission)))
         elif color == "green":
-            self.material_inputs["inputs:emission_color"].Set((.0, 1., .0))
-            self.material_inputs["inputs:absorption"].Set(clip((transmission, .0, transmission)))
+            self.material_inputs["inputs:emission_color"].Set(COLOR_GREEN_EMISSION)
+            self.material_inputs["inputs:absorption"].Set(clip((transmission, 0.0, transmission)))
         elif color == "grey":
-            self.material_inputs["inputs:emission_color"].Set((1., 1., 1.))
+            self.material_inputs["inputs:emission_color"].Set(COLOR_GREY_EMISSION)
             self.material_inputs["inputs:absorption"].Set(clip((transmission, transmission, transmission)))
         else:
             return

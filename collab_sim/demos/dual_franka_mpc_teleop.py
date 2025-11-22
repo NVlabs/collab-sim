@@ -27,16 +27,21 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+"""Dual Franka robot MPC teleoperation example.
 
-    # pre-req: SteamVR connection to VR headset running
-    # collab-sim must be visible from python
-    # export PYTHONPATH=$PYTHONPATH:"<...>/collab-sim"
-    # useconda
-    # conda activate collab-sim
-    # ./setup_conda_env.sh 
-    # vr: python franka_mpc_example.py --runvr --log_data --relevant_objects_str Cube P3 P4
-    #               --enable omni.kit.xr.profile.vr --enable isaacsim.xr.openxr
-    # non-vr: python franka_mpc_example.py --use_keyboard --log_data --relevant_objects_str P3 P4
+Pre-requisites:
+- SteamVR connection to VR headset running (for VR mode)
+- collab-sim in PYTHONPATH
+- Conda environment activated: conda activate collab-sim
+
+Usage:
+    VR mode:
+        python dual_franka_mpc_teleop.py --run_vr --log_data --relevant_objects_str Cube P3 P4
+            --enable omni.kit.xr.profile.vr --enable isaacsim.xr.openxr
+
+    Non-VR mode:
+        python dual_franka_mpc_teleop.py --use_keyboard --log_data --relevant_objects_str P3 P4
+"""
 
 import argparse
 ############################################################
@@ -64,8 +69,7 @@ parser.add_argument(
 args, unknown_args = parser.parse_known_args()
 ############################################################
 if args.print_debug:
-    print (args)
-    # input("Press any key to continue...")
+    print(args)
 ############################################################
 # external:
 import transforms3d as t3d
@@ -132,14 +136,7 @@ robot_origin_p_in_world_2 = np.array(p_table) + np.array([-0.25, -0.45, 0.82]) #
 # robot_origin_quat_in_world_1 = [math.cos(-3.14 / 8), 0, 0, math.sin(-3.14 / 8)]
 robot_origin_quat_in_world_1 = [math.cos(-3.14 / 6), 0, 0, math.sin(-3.14 / 6)] #[1, 0, 0, 0]
 robot_origin_quat_in_world_2 = [math.cos(3.14 / 16), 0, 0, math.sin(3.14 / 16)]
-p_cubes_min = robot_origin_p_in_world_1 + np.array([0.05, -0.30, 0.03])
-p_cubes_max = robot_origin_p_in_world_1 + np.array([0.35, 0.30, 0.03])
-cube_xyz_ranges = [
-    [p_cubes_min[0], p_cubes_max[0], p_cubes_min[1], p_cubes_max[1], p_cubes_min[2], p_cubes_max[2] ],
-    [p_cubes_min[0], p_cubes_max[0], p_cubes_min[1], p_cubes_max[1], p_cubes_min[2], p_cubes_max[2] ],
-    [p_cubes_min[0], p_cubes_max[0], p_cubes_min[1], p_cubes_max[1], p_cubes_min[2], p_cubes_max[2] ],
-    [p_cubes_min[0], p_cubes_max[0], p_cubes_min[1], p_cubes_max[1], p_cubes_min[2], p_cubes_max[2] ]
-]
+# Note: cube_xyz_ranges is defined later with specific coordinates before load_random_cubes() call
 p_worker = np.array(p_table) + np.array([3.64, -6.50, 0.0]) 
 
 
@@ -192,12 +189,12 @@ my_franka_1, my_controller_1, articulation_controller_1 = collab_isaacsim.load_f
                                                                                 franka_name='Franka1',
                                                                                 prim_path='/World/robot1')
 
-collab_franka1 = collab_robot_controller.activerobot (  my_franka_1,                             
-                                                        articulation_controller_1,
-                                                        robot_origin_p_in_world_1, 
-                                                        robot_origin_quat_in_world_1, 
-                                                        start_ee_goal_p_in_robotbase_1, 
-                                                        start_ee_goal_quat_in_robotbase_1)
+collab_franka1 = collab_robot_controller.ActiveRobot(my_franka_1,
+                                                      articulation_controller_1,
+                                                      robot_origin_p_in_world_1,
+                                                      robot_origin_quat_in_world_1,
+                                                      start_ee_goal_p_in_robotbase_1,
+                                                      start_ee_goal_quat_in_robotbase_1)
 collab_franka1.init_curobo_manager(robot_cfg)
 
 
@@ -205,12 +202,12 @@ my_franka_2, my_controller_2, articulation_controller_2 = collab_isaacsim.load_f
                                                                                 franka_name='Franka2',
                                                                                 prim_path='/World/robot2')
 
-collab_franka2 = collab_robot_controller.activerobot (  my_franka_2,                             
-                                                        articulation_controller_2,
-                                                        robot_origin_p_in_world_2, 
-                                                        robot_origin_quat_in_world_2, 
-                                                        start_ee_goal_p_in_robotbase_2, 
-                                                        start_ee_goal_quat_in_robotbase_2)
+collab_franka2 = collab_robot_controller.ActiveRobot(my_franka_2,
+                                                      articulation_controller_2,
+                                                      robot_origin_p_in_world_2,
+                                                      robot_origin_quat_in_world_2,
+                                                      start_ee_goal_p_in_robotbase_2,
+                                                      start_ee_goal_quat_in_robotbase_2)
 collab_franka2.init_curobo_manager(robot_cfg)
 
 
@@ -329,8 +326,22 @@ if args.run_vr:
     vr_world_2.set_up_vr_teleop_frames(robot=my_franka_2, eegoalprim=p3x_franka2) #Assign prim for vr teleop
     vr_world_2.init_vr_leftcont_buttons_lefthanded_teleop_franka2() #**Left hand: trigger = teleop, side button = gripper open/close**
 
+    # Initialize squeeze long-press reset on left controller (hold 5s = reset, short press = gripper)
+    vr_world_2.init_vr_squeeze_long_press_reset(controller="left", long_press_seconds=5.0)
 
-def reset_two_frankas ():
+    # Set callback to move robots back to table position after VR controller reset
+    def on_vr_robot_reset():
+        collab_isaacsim.move_robot_to_root_transform(my_franka_1,
+                                                      world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world_1,
+                                                                                              robot_origin_quat_in_world_1))
+        collab_isaacsim.move_robot_to_root_transform(my_franka_2,
+                                                      world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world_2,
+                                                                                              robot_origin_quat_in_world_2))
+    vr_world_1.set_robot_reset_callback(on_vr_robot_reset)
+    vr_world_2.set_robot_reset_callback(on_vr_robot_reset)
+
+
+def reset_two_frankas():
     collab_isaacsim.move_robot_to_root_transform(my_franka_1, 
                                              world_to_robotbase=ft.transform_from_pq(robot_origin_p_in_world_1, 
                                                                                      robot_origin_quat_in_world_1))
@@ -358,11 +369,11 @@ def main():
     # #Initialize mpc buffer, which needs an ee_goal_pose and current state
     eegoal_Pose_in_robotbase_1 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_1), 
                                         quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_1))
-    collab_franka1.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_1)
+    collab_franka1.curobo_manager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_1)
 
     eegoal_Pose_in_robotbase_2 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_2), 
                                         quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_2))
-    collab_franka2.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_2)
+    collab_franka2.curobo_manager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_2)
 
     run_sim_to_first_ee_goal = True
     collab_isaacsim.step_render(1000) # time for user to adjust gui
@@ -384,7 +395,7 @@ def main():
             if args.log_data: # and data_dict: #save after world.reset (from vr controller button callback)
                 sim_data_log.proccess_and_save_data(my_world.get_physics_dt())
 
-            collab_isaacsim.set_solver_TGS
+            collab_isaacsim.set_solver_TGS()
             # reset USD:
             collab_isaacsim.step_physics_and_render(1)
             collab_isaacsim.step_render(20) 
@@ -408,8 +419,8 @@ def main():
                                             world_to_eegoal_2, collab_franka2.robotbase_to_world, p4x_franka2)
 
             #Get Franka on default position - not included in data saving:
-            joint_commands_usd_franka1 = collab_franka1.curobomanager.compute_ik(eegoal_Pose_in_robotbase_1)
-            joint_commands_usd_franka2 = collab_franka2.curobomanager.compute_ik(eegoal_Pose_in_robotbase_2)
+            joint_commands_usd_franka1 = collab_franka1.curobo_manager.compute_ik(eegoal_Pose_in_robotbase_1)
+            joint_commands_usd_franka2 = collab_franka2.curobo_manager.compute_ik(eegoal_Pose_in_robotbase_2)
 
             collab_franka1.reset_robot_states_to_pose(joint_commands_usd_franka1)
             collab_franka2.reset_robot_states_to_pose(joint_commands_usd_franka2)
@@ -421,8 +432,8 @@ def main():
             eegoal_Pose_in_robotbase_2 = Pose(position=tensor_args.to_device(start_ee_goal_p_in_robotbase_2), 
                                                 quaternion=tensor_args.to_device(start_ee_goal_quat_in_robotbase_2))
             
-            collab_franka1.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_1)
-            collab_franka2.curobomanager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_2)
+            collab_franka1.curobo_manager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_1)
+            collab_franka2.curobo_manager.initialize_mpc_buffer(eegoal_Pose_in_robotbase_2)
             run_sim_to_first_ee_goal = False 
             continue
 
@@ -436,7 +447,7 @@ def main():
             vr_world_1.right_trigger_button_manager.update()
             vr_world_1.right_squeeze_button_manager.update()
             vr_world_2.left_trigger_button_manager.update()
-            vr_world_2.left_squeeze_button_manager.update()
+            vr_world_2.squeeze_long_press_button_manager.update()  # Squeeze: short = gripper, 5s hold = reset
 
         # Update ee goal (p3x has been updated by vr_world_1 internally, or by manual teleop)
         world_to_eegoal_1 = ft.transform_from_pq(p=p3x.get_world_pose()[0], quat=p3x.get_world_pose()[1]) #ee_goal pose
@@ -451,15 +462,15 @@ def main():
         joint_commands_usd_franka1 = []
         joint_commands_usd_franka2 = []
 
-        collab_franka1.curobomanager.step_MPC (collab_franka1.world_to_robotbase, eegoal_Pose_in_robotbase_1)
-        collab_franka2.curobomanager.step_MPC (collab_franka2.world_to_robotbase, eegoal_Pose_in_robotbase_2)
+        collab_franka1.curobo_manager.step_MPC (collab_franka1.world_to_robotbase, eegoal_Pose_in_robotbase_1)
+        collab_franka2.curobo_manager.step_MPC (collab_franka2.world_to_robotbase, eegoal_Pose_in_robotbase_2)
 
         if not args.run_vr:
-            collab_isaacsim.draw_points(collab_franka1.curobomanager.mpc_solver.get_visual_rollouts(), collab_franka1.world_to_robotbase)
-            collab_isaacsim.draw_points(collab_franka2.curobomanager.mpc_solver.get_visual_rollouts(), collab_franka2.world_to_robotbase)
+            collab_isaacsim.draw_points(collab_franka1.curobo_manager.mpc_solver.get_visual_rollouts(), collab_franka1.world_to_robotbase)
+            collab_isaacsim.draw_points(collab_franka2.curobo_manager.mpc_solver.get_visual_rollouts(), collab_franka2.world_to_robotbase)
 
-        joint_commands_usd_franka1.append(collab_franka1.curobomanager.mpc_result.js_action.position.cpu().numpy()) #only one command
-        joint_commands_usd_franka2.append(collab_franka2.curobomanager.mpc_result.js_action.position.cpu().numpy()) #only one command
+        joint_commands_usd_franka1.append(collab_franka1.curobo_manager.mpc_result.js_action.position.cpu().numpy()) #only one command
+        joint_commands_usd_franka2.append(collab_franka2.curobo_manager.mpc_result.js_action.position.cpu().numpy()) #only one command
 
         # for waypoint in joint_commands_usd_franka1: #expect one waypoint for ik or MPC, multiple for motion_gen
         articulation_action_cu_1 = ArticulationAction(joint_positions=joint_commands_usd_franka1[0])
@@ -479,7 +490,3 @@ def main():
 if __name__ == "__main__":
     main()
     simulation_app.close()
-
-
-# curobo:
-# claudiap/jointlimitPhysXfix Change joint limit in continuous to revolute joint conversion - PhysX supports -2Pi,2Pi
